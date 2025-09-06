@@ -28,7 +28,7 @@ app.use(limiter);
 
 const io = new SocketIOServer(server, {
   cors: {
-    origin: process.env.CLIENT_ORIGIN || '*',
+    origin: process.env.CLIENT_ORIGIN ? process.env.CLIENT_ORIGIN.split(',') : ['http://localhost:5173', 'http://localhost:5174'],
     methods: ['GET', 'POST']
   }
 });
@@ -61,7 +61,10 @@ io.on('connection', (socket) => {
   });
 });
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || true, credentials: true }));
+app.use(cors({ 
+  origin: process.env.CLIENT_ORIGIN ? process.env.CLIENT_ORIGIN.split(',') : ['http://localhost:5173', 'http://localhost:5174'], 
+  credentials: true 
+}));
 app.use(express.json());
 
 // serve uploaded files
