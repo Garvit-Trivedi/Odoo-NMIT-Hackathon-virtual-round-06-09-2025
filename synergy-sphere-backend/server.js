@@ -11,6 +11,9 @@ import { Server as SocketIOServer } from 'socket.io';
 import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import projectsRoutes from './routes/projectsRoutes.js';
+import uploadRoutes from './routes/uploadRoutes.js';
+import tasksRoutes from './routes/tasksRoutes.js';
+import threadsRoutes from './routes/threadsRoutes.js';
 import { verifySocket } from './utils/socketAuth.js';
 import { setIO } from './utils/socket.js';
 
@@ -60,12 +63,17 @@ io.on('connection', (socket) => {
 
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || true, credentials: true }));
 app.use(express.json());
+
+// serve uploaded files
+app.use('/uploads', express.static('uploads'));
 app.use(cookieParser());
 app.use(morgan('dev'));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectsRoutes);
-
+app.use('/api/upload', uploadRoutes);
+app.use('/api/tasks', tasksRoutes);
+app.use('/api/threads', threadsRoutes);
 
 app.get('/health', (req, res) => res.json({ ok: true, env: process.env.NODE_ENV || 'dev' }));
 

@@ -1,4 +1,3 @@
-// src/models/Project.js
 import mongoose from 'mongoose';
 
 const memberSchema = new mongoose.Schema({
@@ -10,10 +9,13 @@ const projectSchema = new mongoose.Schema({
   name: { type: String, required: true },
   description: { type: String },
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  manager: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  tags: [{ type: String }],
+  image: { type: String }, // project cover image
   members: [memberSchema]
 }, { timestamps: true });
 
-// Optional: index for queries on members
 projectSchema.index({ 'members.user': 1 });
+projectSchema.index({ name: 'text', description: 'text', tags: 'text' });
 
 export default mongoose.model('Project', projectSchema);

@@ -1,29 +1,23 @@
-// src/controllers/projectsController.js
-
 import Project from '../models/Project.js';
 import User from '../models/User.js';
 import Task from '../models/Task.js';
-import Thread from '../models/Thread.js';
 import { getIO } from '../utils/socket.js';
 
-/**
- * Create a new project.
- * Body: { name, description? }
- * Sets req.user as owner and adds them to members with role 'owner'
- */
 export const createProject = async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, tags = [], manager } = req.body;
     if (!name) return res.status(400).json({ message: 'Name required' });
 
     const project = await Project.create({
       name,
       description,
       owner: req.user,
+      manager: manager || req.user,
+      tags,
       members: [{ user: req.user, role: 'owner' }]
     });
 
-    const populated = await Project.findById(project._id).populate('members.user', 'name email');
+    const populated = await Project.findById(project._id).populate('members.user', 'name email image').populate('manager', 'name email image');
     res.status(201).json(populated);
   } catch (err) {
     console.error('createProject error:', err);
@@ -31,12 +25,14 @@ export const createProject = async (req, res) => {
   }
 };
 
-/**
- * List projects where current user is a member
- */
 export const listProjects = async (req, res) => {
   try {
-    const projects = await Project.find({ 'members.user': req.user }).sort({ updatedAt: -1 });
+    const { q, tag, page = 1, limit = 50 } = req.query;
+    const filter = {};
+    if (tag) filter.tags = tag;
+    if (q) filter.$text = { $search: q };
+    const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
+    const projects = await Project.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(Number(limit));
     res.json(projects);
   } catch (err) {
     console.error('listProjects error:', err);
@@ -44,12 +40,9 @@ export const listProjects = async (req, res) => {
   }
 };
 
-/**
- * Get project details (members populated)
- */
 export const getProject = async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id).populate('members.user', 'name email');
+    const project = await Project.findById(req.params.id).populate('members.user', 'name email image').populate('manager', 'name email image');
     if (!project) return res.status(404).json({ message: 'Project not found' });
     res.json(project);
   } catch (err) {
@@ -58,20 +51,11 @@ export const getProject = async (req, res) => {
   }
 };
 
-/**
- * Add member by email or userId with a role.
- * Body: { email?: string, userId?: string, role?: 'member'|'admin' }
- * Only project owner or admins with permission should add members.
- */
 export const addMember = async (req, res) => {
   try {
     const { email, userId, role = 'member' } = req.body;
-
-    // validate role
     const allowedRoles = ['member', 'admin'];
-    if (!allowedRoles.includes(role)) {
-      return res.status(400).json({ message: 'Invalid role. Allowed: member, admin' });
-    }
+    if (!allowedRoles.includes(role)) return res.status(400).json({ message: 'Invalid role. Allowed: member, admin' });
 
     let user = null;
     if (email) {
@@ -84,10 +68,9 @@ export const addMember = async (req, res) => {
       return res.status(400).json({ message: 'Provide email or userId in request body' });
     }
 
-    const project = await Project.findById(req.params.id).populate('members.user', 'name email');
+    const project = await Project.findById(req.params.id).populate('members.user', 'name email image');
     if (!project) return res.status(404).json({ message: 'Project not found' });
 
-    // Authorization: only owner or admins can add. Adjust as you prefer.
     const requester = project.members.find(m => m.user._id.toString() === req.user);
     const isOwner = project.owner && project.owner.toString() === req.user;
     const isAdmin = requester && requester.role === 'admin';
@@ -95,24 +78,18 @@ export const addMember = async (req, res) => {
       return res.status(403).json({ message: 'Only project owner or admins can add members' });
     }
 
-    // Prevent duplicates
     const already = project.members.find(m => m.user._id.toString() === user._id.toString());
-    if (already) {
-      return res.status(400).json({ message: 'User already in project' });
-    }
+    if (already) return res.status(400).json({ message: 'User already in project' });
 
     project.members.push({ user: user._id, role });
     await project.save();
 
-    const populated = await Project.findById(project._id).populate('members.user', 'name email');
+    const populated = await Project.findById(project._id).populate('members.user', 'name email image');
 
-    // Emit socket event
     try {
       const io = getIO();
       if (io) io.to(`project:${project._id}`).emit('projectUpdated', { projectId: project._id, type: 'memberAdded', member: { _id: user._id, name: user.name, email: user.email, role } });
-    } catch (e) {
-      console.error('socket emit error (memberAdded):', e);
-    }
+    } catch (e) { console.error('socket emit error (memberAdded):', e); }
 
     return res.json(populated);
   } catch (err) {
@@ -121,11 +98,6 @@ export const addMember = async (req, res) => {
   }
 };
 
-/**
- * Remove a member by email.
- * Body: { email }
- * Only project owner or admins can remove (owner cannot be removed).
- */
 export const removeMember = async (req, res) => {
   try {
     const { email } = req.body;
@@ -134,33 +106,25 @@ export const removeMember = async (req, res) => {
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const project = await Project.findById(req.params.id).populate('members.user', 'name email');
+    const project = await Project.findById(req.params.id).populate('members.user', 'name email image');
     if (!project) return res.status(404).json({ message: 'Project not found' });
 
-    // Authorization: owner or admin
     const requester = project.members.find(m => m.user._id.toString() === req.user);
     const isOwner = project.owner && project.owner.toString() === req.user;
     const isAdmin = requester && requester.role === 'admin';
-    if (!isOwner && !isAdmin) {
-      return res.status(403).json({ message: 'Only project owner or admins can remove members' });
-    }
+    if (!isOwner && !isAdmin) return res.status(403).json({ message: 'Only project owner or admins can remove members' });
 
-    // Prevent removing owner
-    if (user._id.toString() === (project.owner && project.owner.toString())) {
-      return res.status(400).json({ message: 'Cannot remove project owner' });
-    }
+    if (user._id.toString() === (project.owner && project.owner.toString())) return res.status(400).json({ message: 'Cannot remove project owner' });
 
     project.members = project.members.filter(m => m.user._id.toString() !== user._id.toString());
     await project.save();
 
-    const populated = await Project.findById(project._id).populate('members.user', 'name email');
+    const populated = await Project.findById(project._id).populate('members.user', 'name email image');
 
     try {
       const io = getIO();
       if (io) io.to(`project:${project._id}`).emit('projectUpdated', { projectId: project._id, type: 'memberRemoved', member: { _id: user._id, name: user.name, email: user.email } });
-    } catch (e) {
-      console.error('socket emit error (memberRemoved):', e);
-    }
+    } catch (e) { console.error('socket emit error (memberRemoved):', e); }
 
     res.json(populated);
   } catch (err) {
@@ -169,9 +133,6 @@ export const removeMember = async (req, res) => {
   }
 };
 
-/**
- * Get project task stats: counts by status and percentDone
- */
 export const getProjectStats = async (req, res) => {
   try {
     const projectId = req.params.id;
@@ -187,32 +148,14 @@ export const getProjectStats = async (req, res) => {
   }
 };
 
-/**
- * Delete project (owner-only).
- * Optionally cascade-delete tasks/threads if desired (commented).
- */
 export const deleteProject = async (req, res) => {
   try {
     const project = await Project.findById(req.params.id);
     if (!project) return res.status(404).json({ message: 'Project not found' });
-
-    if (!project.owner || project.owner.toString() !== req.user) {
-      return res.status(403).json({ message: 'Only owner can delete the project' });
-    }
-
-    // Optional cascade delete (uncomment if you want to remove tasks & threads with project)
-    // await Task.deleteMany({ project: project._id });
-    // await Thread.deleteMany({ project: project._id });
+    if (!project.owner || project.owner.toString() !== req.user) return res.status(403).json({ message: 'Only owner can delete the project' });
 
     await project.deleteOne();
-
-    try {
-      const io = getIO();
-      if (io) io.to(`project:${project._id}`).emit('projectDeleted', { projectId: project._id });
-    } catch (e) {
-      console.error('socket emit error (projectDeleted):', e);
-    }
-
+    try { const io = getIO(); if (io) io.to(`project:${project._id}`).emit('projectDeleted', { projectId: project._id }); } catch(e){}
     res.json({ message: 'Project deleted' });
   } catch (err) {
     console.error('deleteProject error:', err);

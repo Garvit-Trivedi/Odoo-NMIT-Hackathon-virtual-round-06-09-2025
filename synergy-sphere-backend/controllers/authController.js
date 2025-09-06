@@ -176,3 +176,19 @@ export const getMe = async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
+
+
+export const updateMe = async (req, res) => {
+  try {
+    const user = await User.findById(req.user);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (req.body.name) user.name = req.body.name;
+    if (req.body.image) user.image = req.body.image;
+    if (req.body.password) user.password = req.body.password;
+    await user.save();
+    res.json({ _id: user._id, name: user.name, email: user.email, image: user.image });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};

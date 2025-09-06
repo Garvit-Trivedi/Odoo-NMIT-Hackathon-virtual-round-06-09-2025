@@ -13,11 +13,11 @@ const createTransport = () => {
 
 export const sendResetEmail = async (to, link) => {
   const transporter = createTransport();
-  const subject = 'SynergySphere password reset';
-  const html = `<p>Click the link to reset your password (valid 1 hour):</p><p><a href="${link}">${link}</a></p>`;
+  const subject = 'SynergySphere - action required';
+  const html = `<p>Click the link:</p><p><a href="${link}">${link}</a></p>`;
 
   if (!transporter) {
-    console.log('DEV RESET LINK:', link);
+    console.log('DEV EMAIL LINK:', link);
     return;
   }
 
