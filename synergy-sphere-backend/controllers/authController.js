@@ -26,49 +26,78 @@ const setRefreshCookie = (res, token) => {
 
 export const registerUser = async (req, res) => {
   const { name, email, password } = req.body;
-  if (!name || !email || !password) return res.status(400).json({ message: 'Missing required fields' });
+  if (!name || !email || !password)
+    return res.status(400).json({ message: 'Missing required fields' });
+
   try {
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ message: 'User already exists' });
 
-    const salt = await bcrypt.genSalt(10);
-    const hash = await bcrypt.hash(password, salt);
-    const user = await User.create({ name, email, password: hash });
+    // Just pass the password, let the schema hash it
+    const user = await User.create({ name, email, password });
 
     const accessToken = createAccessToken(user._id);
     const refreshToken = await createRefreshToken(user._id);
-
     setRefreshCookie(res, refreshToken);
 
-    res.status(201).json({ user: { _id: user._id, name: user.name, email: user.email }, accessToken, refreshToken });
+    res.status(201).json({
+      user: { _id: user._id, name: user.name, email: user.email },
+      accessToken,
+      refreshToken
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
+
 export const loginUser = async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ message: 'Missing email or password' });
+  const {email,password} = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ message: 'Missing email or password' });
+  }
 
   try {
     const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: 'Invalid credentials' });
+    if (!user) {
+      console.log("❌ User not found for email:", email);
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
+    // Debug logs
+    console.log("Login attempt email:", email);
+    console.log("Entered password (raw):", password);
+    console.log("Stored hash in DB:", user.password);
+    console.log('Login attempt email:', email);
+console.log('Entered password (raw):', password);
+console.log('Stored hash in DB:', user.password);
+const isMatch = await user.matchPassword(password.trim());
+console.log('Password match result:', isMatch);
+
+
+
+
+    // const isMatch = await user.matchPassword(password);
+if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
+
 
     const accessToken = createAccessToken(user._id);
     const refreshToken = await createRefreshToken(user._id);
 
     setRefreshCookie(res, refreshToken);
 
-    res.json({ user: { _id: user._id, name: user.name, email: user.email }, accessToken, refreshToken });
+    res.json({
+      user: { _id: user._id, name: user.name, email: user.email, image: user.image },
+      accessToken,
+      refreshToken
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 };
+
 
 export const refreshToken = async (req, res) => {
   const raw = req.body?.refreshToken || req.cookies?.refreshToken;
